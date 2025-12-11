@@ -15,6 +15,10 @@ long targetPosition = 0;
 long minPosition = 0;
 long maxPosition = 3000;
 
+// Hardcoded limits that override any saved values on boot
+const long HARD_MIN_POSITION = 0;
+const long HARD_MAX_POSITION = 3000;
+
 const int zIndexPin = 6;
 bool useIndexHoming = false;
 
@@ -104,6 +108,20 @@ void setup() {
   applyMotionSettings();
   enableDriver();
   bool ok = false; long persisted = loadPositionFromEEPROM(&ok);
+  // Enforce hardcoded limits on every reboot, overwriting any persisted limits
+  minPosition = HARD_MIN_POSITION;
+  maxPosition = HARD_MAX_POSITION;
+  // Persist enforced limits back to EEPROM if they differ
+  {
+    PersistData d = persistedCache;
+    d.magic = PERSIST_MAGIC;
+    d.lastPosition = ok ? persisted : 0;
+    d.maxSpeed = maxSpeed;
+    d.acceleration = acceleration;
+    d.minPosition = minPosition;
+    d.maxPosition = maxPosition;
+    saveAllToEEPROMIfChanged(d);
+  }
   // Ensure motion settings applied after potentially loading from EEPROM
   applyMotionSettings();
   long startPos = ok ? persisted : 0;

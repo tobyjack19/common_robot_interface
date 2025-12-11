@@ -8,9 +8,12 @@ def main():
     try:
         print(gripper.info)
         gripper.enable(True)
+
+        print(f"{gripper.status()}")
+
         # gripper.set_limits(0, 3000)
-        # gripper.set_speed(3000)
-        # gripper.set_accel(2000)
+        # gripper.set_speed(5000)
+        # gripper.set_accel(5000)
 
         # Read persisted position and show it
         current_pos = gripper.current_position()
@@ -25,8 +28,8 @@ def main():
         current_pos = gripper.current_position()
         print(f"current_position={current_pos if current_pos is not None else 'unknown'}")
 
-        print(f"jog({2000})")
-        gripper.jog(2000, wait=True, timeout_s=30.0)
+        print(f"jog({200})")
+        gripper.jog(200, wait=True, timeout_s=30.0)
 
         # Read persisted position and show it
         current_pos = gripper.current_position()

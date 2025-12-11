@@ -24,7 +24,7 @@ def run_repl(port: str, baud: int):
                 if c0 in ("quit", "exit"):
                     break
                 elif c0 == "help":
-                    print("Commands: enable on|off, speed <sps>, accel <sps2>, limits <min> <max>, position <0..1> [--wait], jog <steps>, status")
+                    print("Commands: enable on|off, speed <sps>, accel <sps2>, limits <min> <max>, min_pos <min>, max_pos <max>, position <0..1> [--wait], jog <steps>, status")
                 elif c0 == "enable" and len(cmd) >= 2:
                     dev.enable(cmd[1].lower() == "on")
                 elif c0 == "speed" and len(cmd) >= 2:
@@ -33,6 +33,18 @@ def run_repl(port: str, baud: int):
                     dev.set_accel(float(cmd[1]))
                 elif c0 == "limits" and len(cmd) >= 3:
                     dev.set_limits(int(cmd[1]), int(cmd[2]))
+                elif c0 == "min_pos" and len(cmd) >= 2:
+                    st = dev.status()
+                    cur_max = st.get("max_pos") if st else None
+                    if cur_max is None:
+                        raise ValueError("Cannot read current max_pos; try 'status' first")
+                    dev.set_limits(int(cmd[1]), int(cur_max))
+                elif c0 == "max_pos" and len(cmd) >= 2:
+                    st = dev.status()
+                    cur_min = st.get("min_pos") if st else None
+                    if cur_min is None:
+                        raise ValueError("Cannot read current min_pos; try 'status' first")
+                    dev.set_limits(int(cur_min), int(cmd[1]))
                 elif c0 == "position" and len(cmd) >= 2:
                     wait = "--wait" in cmd
                     dev.set_position(float(cmd[1]), wait=wait)
