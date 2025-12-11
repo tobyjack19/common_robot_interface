@@ -16,8 +16,22 @@ setup(
     authors="John Lloyd, Nathan Lepora",
     author_emaila="j.lloyd@bristol.ac.uk, n.lepora@bristol.ac.uk",
     url="https://github.com/dexterousrobot/common_robot_interface",
-    packages=["cri", "cri.abb", "cri.ur", "cri.ur.rtde", "cri.dobot", "cri.dobot.mg400",  "cri.dobot.cr", "cri.dobot.magician"],
-	package_data={'cri.ur': ['rtde_config.xml'],
-            "cri.dobot.magician": ['DobotDll.dll',"msvcp120.dll","msvcr120.dll","Qt5Core.dll","Qt5Network.dll","Qt5SerialPort.dll"]},
-    install_requires=["numpy", "transforms3d"]
+    packages=[
+        "cri",
+        "cri.abb",
+        "cri.ur",
+        "cri.ur.rtde",
+        "cri.dobot",
+        "cri.dobot.mg400",
+        "cri.dobot.cr",
+        "cri.dobot.magician",
+        "cri.grippers",
+        "cri.grippers.crap_hand",
+    ],
+	package_data={
+            'cri.ur': ['rtde_config.xml'],
+            'cri.dobot.magician': ['DobotDll.dll','msvcp120.dll','msvcr120.dll','Qt5Core.dll','Qt5Network.dll','Qt5SerialPort.dll'],
+            'cri.grippers.crap_hand': ['firmware/*.ino', 'examples/*.py', 'README.md'],
+    },
+    install_requires=["numpy", "transforms3d", "pyserial"]
 )
