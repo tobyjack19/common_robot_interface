@@ -16,6 +16,10 @@ This fork extends the support to these robot arms:
 - Dobot Magician
 - Simulated robot arm - using the [Tactile Sim library](https://github.com/dexterousrobot/tactile_sim)
 
+And also integrates gripper class functionality (early development) with the inclusion of controllers for the following grippers:
+
+- CRAP-hand - Uses pyserial to communicate with an arduino nano ESP32 controlling a single stepper motor for gripper control
+
 A GUI-based robot jogger tool is also included with the library.  This tool can be used to move the robot into different configurations.
 
 ## Installation
