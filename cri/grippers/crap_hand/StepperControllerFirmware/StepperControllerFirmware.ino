@@ -24,6 +24,7 @@ bool useIndexHoming = false;
 
 float maxSpeed = 5000.0f;
 float acceleration = 5000.0f;
+static bool autoDisablePending = false; // auto-disable driver after current move completes
 
 struct PersistData {
   uint32_t magic;
@@ -92,6 +93,7 @@ void applyMotionSettings() {
 
 void enableDriver() { digitalWrite(enablePin, LOW); }
 void disableDriver() { digitalWrite(enablePin, HIGH); }
+bool isDriverEnabled() { return digitalRead(enablePin) == LOW; }
 
 void setup() {
 #if defined(ESP32)
@@ -106,7 +108,8 @@ void setup() {
   while (!Serial) { ; }
 
   applyMotionSettings();
-  enableDriver();
+  // Start with driver disabled by default
+  disableDriver();
   bool ok = false; long persisted = loadPositionFromEEPROM(&ok);
   // Enforce hardcoded limits on every reboot, overwriting any persisted limits
   minPosition = HARD_MIN_POSITION;
@@ -143,7 +146,11 @@ void loop() {
   stepper.moveTo(targetPosition);
   stepper.run();
   static unsigned long lastSaveMs = 0; unsigned long now = millis();
-  if (stepper.distanceToGo() == 0) { if (now - lastSaveMs > 250) { savePositionToEEPROM(stepper.currentPosition()); lastSaveMs = now; } }
+  if (stepper.distanceToGo() == 0) {
+    if (now - lastSaveMs > 250) { savePositionToEEPROM(stepper.currentPosition()); lastSaveMs = now; }
+    // If a move-triggering command requested auto-disable, and we're now idle, disable driver
+    if (autoDisablePending && isDriverEnabled()) { disableDriver(); autoDisablePending = false; }
+  }
   else if (now - lastSaveMs > 2000) { savePositionToEEPROM(stepper.currentPosition()); lastSaveMs = now; }
 }
 
@@ -179,27 +186,59 @@ void handleSerial() {
       char cmd = toupper(buf[i]); size_t j = i + 1; while (j < len && (buf[j] == ' ' || buf[j] == '\t')) j++;
       if (cmd == 'P' || cmd == 'V' || cmd == 'A' || cmd == 'E') {
         char *arg = (char*)&buf[j];
-        if (cmd == 'P') { long val = strtol(arg, NULL, 10); if (val < minPosition) val = minPosition; if (val > maxPosition) val = maxPosition; targetPosition = val; stepper.moveTo(targetPosition); Serial.print('<'); Serial.print("OK P "); Serial.print(targetPosition); Serial.print('>'); savePositionToEEPROM(stepper.currentPosition()); }
+        if (cmd == 'P') {
+          enableDriver();
+          long val = strtol(arg, NULL, 10); if (val < minPosition) val = minPosition; if (val > maxPosition) val = maxPosition; targetPosition = val; stepper.moveTo(targetPosition);
+          // Auto-disable if no motion needed; otherwise defer until move completes
+          if (stepper.distanceToGo() != 0) { autoDisablePending = true; }
+          else { disableDriver(); }
+          Serial.print('<'); Serial.print("OK P "); Serial.print(targetPosition); Serial.print('>'); savePositionToEEPROM(stepper.currentPosition());
+        }
         else if (cmd == 'V') { float val = strtof(arg, NULL); maxSpeed = val; applyMotionSettings();
+          // Enable for the operation if disabled; disable after if idle and not pending a move
+          bool wasEnabled = isDriverEnabled(); if (!wasEnabled) enableDriver();
           PersistData d = persistedCache; d.magic = PERSIST_MAGIC; d.lastPosition = stepper.currentPosition(); d.maxSpeed = maxSpeed; d.acceleration = acceleration; d.minPosition = minPosition; d.maxPosition = maxPosition; saveAllToEEPROMIfChanged(d);
-          Serial.print('<'); Serial.print("OK V "); Serial.print(maxSpeed); Serial.print('>'); }
+          Serial.print('<'); Serial.print("OK V "); Serial.print(maxSpeed); Serial.print('>');
+          if (!wasEnabled && stepper.distanceToGo() == 0 && !autoDisablePending) disableDriver();
+        }
         else if (cmd == 'A') { float val = strtof(arg, NULL); acceleration = val; applyMotionSettings();
+          bool wasEnabled = isDriverEnabled(); if (!wasEnabled) enableDriver();
           PersistData d = persistedCache; d.magic = PERSIST_MAGIC; d.lastPosition = stepper.currentPosition(); d.maxSpeed = maxSpeed; d.acceleration = acceleration; d.minPosition = minPosition; d.maxPosition = maxPosition; saveAllToEEPROMIfChanged(d);
-          Serial.print('<'); Serial.print("OK A "); Serial.print(acceleration); Serial.print('>'); }
+          Serial.print('<'); Serial.print("OK A "); Serial.print(acceleration); Serial.print('>');
+          if (!wasEnabled && stepper.distanceToGo() == 0 && !autoDisablePending) disableDriver();
+        }
         else if (cmd == 'E') { long val = strtol(arg, NULL, 10); if (val == 0) { disableDriver(); Serial.print('<'); Serial.print("OK E 0"); Serial.print('>'); } else { enableDriver(); Serial.print('<'); Serial.print("OK E 1"); Serial.print('>'); } }
-      } else if (cmd == 'H') { stepper.setCurrentPosition(0); targetPosition = 0; stepper.moveTo(targetPosition); savePositionToEEPROM(0); Serial.print('<'); Serial.print("OK H"); Serial.print('>'); }
+      } else if (cmd == 'H') {
+        enableDriver();
+        stepper.setCurrentPosition(0); targetPosition = 0; stepper.moveTo(targetPosition);
+        if (stepper.distanceToGo() != 0) { autoDisablePending = true; }
+        else { disableDriver(); }
+        savePositionToEEPROM(0); Serial.print('<'); Serial.print("OK H"); Serial.print('>');
+      }
       else if (cmd == 'L') {
         long minVal = 0, maxVal = 0; char *arg = (char*)&buf[j]; char *end1 = NULL;
         minVal = strtol(arg, &end1, 10);
         if (end1) {
           while (*end1 == ' ' || *end1 == '\t') end1++;
           maxVal = strtol(end1, NULL, 10);
-          if (minVal <= maxVal) { minPosition = minVal; maxPosition = maxVal; long cur = stepper.currentPosition(); if (cur < minPosition) { stepper.setCurrentPosition(minPosition); } if (cur > maxPosition) { stepper.setCurrentPosition(maxPosition); } if (targetPosition < minPosition) targetPosition = minPosition; if (targetPosition > maxPosition) targetPosition = maxPosition; stepper.moveTo(targetPosition); Serial.print('<'); Serial.print("OK L "); Serial.print(minPosition); Serial.print(' '); Serial.print(maxPosition); Serial.print('>');
+          if (minVal <= maxVal) {
+            bool wasEnabled = isDriverEnabled(); if (!wasEnabled) enableDriver();
+            minPosition = minVal; maxPosition = maxVal; long cur = stepper.currentPosition(); if (cur < minPosition) { stepper.setCurrentPosition(minPosition); } if (cur > maxPosition) { stepper.setCurrentPosition(maxPosition); } if (targetPosition < minPosition) targetPosition = minPosition; if (targetPosition > maxPosition) targetPosition = maxPosition; stepper.moveTo(targetPosition); Serial.print('<'); Serial.print("OK L "); Serial.print(minPosition); Serial.print(' '); Serial.print(maxPosition); Serial.print('>');
             PersistData d = persistedCache; d.magic = PERSIST_MAGIC; d.lastPosition = stepper.currentPosition(); d.maxSpeed = maxSpeed; d.acceleration = acceleration; d.minPosition = minPosition; d.maxPosition = maxPosition; saveAllToEEPROMIfChanged(d);
+            if (!wasEnabled) {
+              if (stepper.distanceToGo() == 0 && !autoDisablePending) disableDriver();
+              else autoDisablePending = true; // limits change triggered a move; disable after it completes
+            }
           }
           else { Serial.print('<'); Serial.print("ERR L"); Serial.print('>'); }
         } else { Serial.print('<'); Serial.print("ERR L"); Serial.print('>'); }
-      } else if (cmd == 'Z' && (i + 1) < len && toupper(buf[i + 1]) == 'H') { homeUsingIndex(); savePositionToEEPROM(stepper.currentPosition()); Serial.print('<'); Serial.print("OK ZH"); Serial.print('>'); }
+      } else if (cmd == 'Z' && (i + 1) < len && toupper(buf[i + 1]) == 'H') {
+        enableDriver();
+        homeUsingIndex();
+        savePositionToEEPROM(stepper.currentPosition());
+        disableDriver();
+        Serial.print('<'); Serial.print("OK ZH"); Serial.print('>');
+      }
       else if (cmd == 'X') { bool ok2 = false; long persisted2 = loadPositionFromEEPROM(&ok2); Serial.print('<'); if (ok2) { Serial.print("MEM "); Serial.print(persisted2); } else { Serial.print("MEM NA"); } Serial.print('>'); }
       else if (cmd == '?') { Serial.print('<'); Serial.print("S "); Serial.print(stepper.currentPosition()); Serial.print(' '); Serial.print(targetPosition); Serial.print(' '); Serial.print(maxSpeed); Serial.print(' '); Serial.print(acceleration); Serial.print(' '); Serial.print(digitalRead(enablePin) == LOW ? 1 : 0); Serial.print(' '); Serial.print(minPosition); Serial.print(' '); Serial.print(maxPosition); Serial.print('>'); }
       else { Serial.print('<'); Serial.print("ERR"); Serial.print('>'); }
